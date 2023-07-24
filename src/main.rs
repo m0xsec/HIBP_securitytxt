@@ -1,6 +1,6 @@
 use reqwest::Client;
 use serde::Deserialize;
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::Write;
 use std::time::Duration;
 
@@ -66,7 +66,7 @@ async fn main() {
     let resp = match resp.await {
         Ok(resp) => resp,
         Err(e) => {
-            println!("Error: {}", e);
+            println!("Error accessing HIBP API: {}", e);
             return;
         }
     };
@@ -102,8 +102,8 @@ async fn main() {
             // Check for errors
             let securitytxt_resp = match securitytxt_resp.await {
                 Ok(securitytxt_resp) => securitytxt_resp,
-                Err(e) => {
-                    //println!("Error: {}", e);
+                Err(_e) => {
+                    //println!("Error: {}", _e);
                     securitytxt_check.domain_error = true;
                     securitytxt_checks.push(securitytxt_check);
                     continue;
@@ -136,8 +136,8 @@ async fn main() {
                 // Check for errors
                 let securitytxt_resp2 = match securitytxt_resp2.await {
                     Ok(securitytxt_resp2) => securitytxt_resp2,
-                    Err(e) => {
-                        //println!("Error: {}", e);
+                    Err(_e) => {
+                        //println!("Error: {}", _e);
                         securitytxt_check.domain_error = true;
                         securitytxt_checks.push(securitytxt_check);
                         continue;
