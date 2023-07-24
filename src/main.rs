@@ -178,7 +178,7 @@ async fn main() {
         "|:----------:|:-----------------------:|:----------------:|:-----------------:|\n",
     );
 
-    writeln!(&mut file, "{}", report_header).expect("Unable to write file");
+    write!(&mut file, "{}", report_header).expect("Unable to write file");
 
     for breach_securitytxt in securitytxt_checks {
         let report = format!(
@@ -188,6 +188,6 @@ async fn main() {
             breach_securitytxt.security_txt_location,
             breach_securitytxt.security_txt_path
         );
-        writeln!(&mut file, "{}", report).expect("Unable to write file");
+        write!(&mut file, "{}", report).expect("Unable to write file");
     }
 }
