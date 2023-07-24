@@ -1,6 +1,7 @@
 use reqwest::Client;
 use serde::Deserialize;
-use std::fs;
+use std::fs::{self, File};
+use std::io::Write;
 use std::time::Duration;
 
 /// HIBP Breach Model
@@ -165,6 +166,7 @@ async fn main() {
     // TODO: Generate report :3
     println!("Generating report...");
     let report_file = "Report.md";
+    let mut file = File::create(report_file).unwrap();
 
     let mut report_header = "# HIBP Security.txt Compliance Report\n".to_string();
     report_header.push_str(&format!("**{} domains checked**\n\n", domain_count));
@@ -176,7 +178,7 @@ async fn main() {
         "|:----------:|:-----------------------:|:----------------:|:-----------------:|\n",
     );
 
-    fs::write(report_file, report_header).expect("Unable to write file");
+    writeln!(&mut file, "{}", report_header).expect("Unable to write file");
 
     for breach_securitytxt in securitytxt_checks {
         let report = format!(
@@ -186,6 +188,6 @@ async fn main() {
             breach_securitytxt.security_txt_location,
             breach_securitytxt.security_txt_path
         );
-        fs::write(report_file, report).expect("Unable to write file");
+        writeln!(&mut file, "{}", report).expect("Unable to write file");
     }
 }
