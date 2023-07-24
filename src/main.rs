@@ -50,7 +50,7 @@ struct SecurityTxtChecks {
 
 #[tokio::main]
 async fn main() {
-    println!("Hello, world!");
+    // TODO: Multi-threading to speed things up?
 
     // Pull the breach model for all breach domains from HIBP
     let client = Client::new();
@@ -163,7 +163,10 @@ async fn main() {
         }
     }
 
-    // TODO: Generate report :3
+    // Generate report :3
+    // TODO: Use emojis instead of true/false
+    // TODO: Add column for if there was an error contacting the domain
+    // TODO: Output full report, report with only security.txt found, report with only security.txt not found?
     println!("Generating report...");
     let report_file = "Report.md";
     let mut file = File::create(report_file).unwrap();
