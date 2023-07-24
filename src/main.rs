@@ -1,7 +1,7 @@
-use std::time::Duration;
-
 use reqwest::Client;
 use serde::Deserialize;
+use std::fs;
+use std::time::Duration;
 
 /// HIBP Breach Model
 #[allow(dead_code)]
@@ -33,6 +33,9 @@ struct SecurityTxtChecks {
     /// Domain being checked.
     domain: String,
 
+    /// Was there an error contacting the domain?
+    domain_error: bool,
+
     /// Path to the security.txt file, if found.
     security_txt_path: String,
 
@@ -55,10 +58,10 @@ async fn main() {
     let resp = client
         .get(url)
         .header("User-Agent", "HIBP_securitytxt")
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(5))
         .send();
 
-    // Check for timeout error
+    // Check for errors
     let resp = match resp.await {
         Ok(resp) => resp,
         Err(e) => {
@@ -67,14 +70,23 @@ async fn main() {
         }
     };
 
+    // Build breach model vector, representing all breach domains.
     let breaches: Vec<Breach> = resp.json().await.unwrap();
+    let domain_count = breaches.len();
+    println!("Found {} breach domains!", domain_count);
 
-    println!("Found {} breach domains!", breaches.len());
-
-    // Pull all of the domains from the breach models
+    // Build security.txt compliance report data  for each domain.
+    let mut securitytxt_checks: Vec<SecurityTxtChecks> = Vec::new();
     for breach in breaches {
         if !breach.domain.is_empty() {
             println!("Running checks on {} ...", breach.domain);
+            let mut securitytxt_check = SecurityTxtChecks {
+                domain: breach.domain.clone(),
+                domain_error: false,
+                security_txt_path: "".to_string(),
+                security_txt_exists: false,
+                security_txt_location: false,
+            };
 
             // Check .well-known/security.txt
             let securitytxt_resp = client
@@ -83,57 +95,97 @@ async fn main() {
                     breach.domain
                 ))
                 .header("User-Agent", "HIBP_securitytxt")
-                .timeout(Duration::from_secs(30))
+                .timeout(Duration::from_secs(5))
                 .send();
 
-            // Check for timeout error
+            // Check for errors
             let securitytxt_resp = match securitytxt_resp.await {
                 Ok(securitytxt_resp) => securitytxt_resp,
                 Err(e) => {
-                    println!("Error: {}", e);
+                    //println!("Error: {}", e);
+                    securitytxt_check.domain_error = true;
+                    securitytxt_checks.push(securitytxt_check);
                     continue;
                 }
             };
 
             // Success?
             if securitytxt_resp.status().is_success() {
-                println!(
+                /*println!(
                     "Found security.txt at {}/.well-known/security.txt",
                     breach.domain
-                );
+                );*/
+                securitytxt_check.security_txt_exists = true;
+                securitytxt_check.security_txt_location = true;
+                securitytxt_check.security_txt_path =
+                    format!("https://{}/.well-known/security.txt", breach.domain);
             } else {
-                println!(
+                /*println!(
                     "No security.txt found at {}/.well-known/security.txt",
                     breach.domain
-                );
+                );*/
 
                 // Check .well-known/security.txt
                 let securitytxt_resp2 = client
                     .get(format!("https://{}/security.txt", breach.domain))
                     .header("User-Agent", "HIBP_securitytxt")
-                    .timeout(Duration::from_secs(30))
+                    .timeout(Duration::from_secs(5))
                     .send();
 
-                // Check for timeout error
+                // Check for errors
                 let securitytxt_resp2 = match securitytxt_resp2.await {
                     Ok(securitytxt_resp2) => securitytxt_resp2,
                     Err(e) => {
-                        println!("Error: {}", e);
+                        //println!("Error: {}", e);
+                        securitytxt_check.domain_error = true;
+                        securitytxt_checks.push(securitytxt_check);
                         continue;
                     }
                 };
 
                 // Success?
                 if securitytxt_resp2.status().is_success() {
-                    println!("Found security.txt at {}/security.txt", breach.domain);
+                    //println!("Found security.txt at {}/security.txt", breach.domain);
+                    securitytxt_check.security_txt_exists = true;
+                    securitytxt_check.security_txt_location = false;
+                    securitytxt_check.security_txt_path =
+                        format!("https://{}/security.txt", breach.domain);
                 } else {
-                    println!("No security.txt found at {}/security.txt", breach.domain);
+                    //println!("No security.txt found at {}/security.txt", breach.domain);
+                    securitytxt_check.security_txt_exists = false;
+                    securitytxt_check.security_txt_location = false;
                 }
             }
+
+            // Push compliance data to vector.
+            securitytxt_checks.push(securitytxt_check);
         }
     }
 
-    // TODO: Kick off requests to check security.txt files for each domain
-    // Check domain.com/security.txt and domain.com/.well-known/security.txt
-    // Any other paths to check?
+    // TODO: Generate report :3
+    println!("Generating report...");
+    let report_file = "Report.md";
+
+    let mut report_header = "# HIBP Security.txt Compliance Report\n".to_string();
+    report_header.push_str(&format!("**{} domains checked**\n\n", domain_count));
+    report_header.push_str("## Summary of Results\n");
+    report_header.push_str(
+        "| **Domain** | **security.txt Found?** | **.well-known?** | **Observed Path** |\n",
+    );
+    report_header.push_str(
+        "|:----------:|:-----------------------:|:----------------:|:-----------------:|\n",
+    );
+
+    fs::write(report_file, report_header).expect("Unable to write file");
+
+    for breach_securitytxt in securitytxt_checks {
+        let report = format!(
+            "| {} | {} | {} | {} |\n",
+            breach_securitytxt.domain,
+            breach_securitytxt.security_txt_exists,
+            breach_securitytxt.security_txt_location,
+            breach_securitytxt.security_txt_path
+        );
+        fs::write(report_file, report).expect("Unable to write file");
+    }
 }
