@@ -165,7 +165,6 @@ async fn main() {
 
     // Generate report :3
     // TODO: Use emojis instead of true/false
-    // TODO: Add column for if there was an error contacting the domain
     // TODO: Output full report, report with only security.txt found, report with only security.txt not found?
     println!("Generating report...");
     let report_file = "Report.md";
@@ -175,21 +174,22 @@ async fn main() {
     report_header.push_str(&format!("**{} domains checked**\n\n", domain_count));
     report_header.push_str("## Summary of Results\n");
     report_header.push_str(
-        "| **Domain** | **security.txt Found?** | **.well-known?** | **Observed Path** |\n",
+        "| **Domain** | **security.txt Found?** | **.well-known?** | **Observed Path** | **Errors** |\n",
     );
     report_header.push_str(
-        "|:----------:|:-----------------------:|:----------------:|:-----------------:|\n",
+        "|:----------:|:-----------------------:|:----------------:|:-----------------:|:-----------------:|\n",
     );
 
     write!(&mut file, "{}", report_header).expect("Unable to write file");
 
     for breach_securitytxt in securitytxt_checks {
         let report = format!(
-            "| {} | {} | {} | {} |\n",
+            "| {} | {} | {} | {} | {} |\n",
             breach_securitytxt.domain,
             breach_securitytxt.security_txt_exists,
             breach_securitytxt.security_txt_location,
-            breach_securitytxt.security_txt_path
+            breach_securitytxt.security_txt_path,
+            breach_securitytxt.domain_error
         );
         write!(&mut file, "{}", report).expect("Unable to write file");
     }

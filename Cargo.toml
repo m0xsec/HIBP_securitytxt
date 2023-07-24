@@ -1,5 +1,7 @@
 [package]
 name = "hibp_securitytxt"
+authors = ["m0x"]
+description = "Checks for the presence of a security.txt under the current list of breach domains for Have I Been Pwned."
 version = "0.1.0"
 edition = "2021"
 
@@ -8,4 +10,4 @@ edition = "2021"
 [dependencies]
 reqwest = {version = "0.11.18", features = ["json"]}
 serde = {version = "1.0.174", features = ["derive"]}
-tokio = {version = "1.29.1", features = ["rt-multi-thread", "macros"]}
+tokio = {version = "1.29.1", features = ["full"] }
