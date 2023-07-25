@@ -164,7 +164,6 @@ async fn main() {
     }
 
     // Generate report :3
-    // TODO: Use emojis instead of true/false
     // TODO: Output full report, report with only security.txt found, report with only security.txt not found?
     println!("Generating report...");
     let report_file = "Report.md";
@@ -183,13 +182,31 @@ async fn main() {
     write!(&mut file, "{}", report_header).expect("Unable to write file");
 
     for breach_securitytxt in securitytxt_checks {
+        let sec_txt_exists = if breach_securitytxt.security_txt_exists {
+            ":white_check_mark:"
+        } else {
+            ":x:"
+        };
+
+        let sec_txt_location = if breach_securitytxt.security_txt_location {
+            ":white_check_mark:"
+        } else {
+            ":x:"
+        };
+
+        let domain_error = if breach_securitytxt.domain_error {
+            ":bangbang:"
+        } else {
+            " "
+        };
+
         let report = format!(
             "| {} | {} | {} | {} | {} |\n",
             breach_securitytxt.domain,
-            breach_securitytxt.security_txt_exists,
-            breach_securitytxt.security_txt_location,
+            sec_txt_exists,
+            sec_txt_location,
             breach_securitytxt.security_txt_path,
-            breach_securitytxt.domain_error
+            domain_error
         );
         write!(&mut file, "{}", report).expect("Unable to write file");
     }
