@@ -3,6 +3,7 @@ use serde::Deserialize;
 use std::fs::File;
 use std::io::Write;
 use std::time::Duration;
+use tokio::sync::mpsc;
 
 /// HIBP Breach Model
 #[allow(dead_code)]
@@ -30,6 +31,7 @@ struct Breach {
 /// https://securitytxt.org/
 /// https://www.rfc-editor.org/rfc/rfc9116
 /// Represents some simple checks to report notable issues with security.txt files.
+#[derive(Clone)]
 struct SecurityTxtChecks {
     /// Domain being checked.
     domain: String,
@@ -50,8 +52,6 @@ struct SecurityTxtChecks {
 
 #[tokio::main]
 async fn main() {
-    // TODO: Multi-threading to speed things up?
-
     // Pull the breach model for all breach domains from HIBP
     let client = Client::new();
     let url = "https://haveibeenpwned.com/api/v3/breaches";
@@ -76,91 +76,116 @@ async fn main() {
     let domain_count = breaches.len();
     println!("Found {} breach domains!", domain_count);
 
-    // Build security.txt compliance report data  for each domain.
-    let mut securitytxt_checks: Vec<SecurityTxtChecks> = Vec::new();
+    // Vec to hold JoinHandles for each domain check thread
+    let mut handles = Vec::new();
+
+    // Create a channel for passing results from the tasks to the main task
+    let (tx, mut rx) = mpsc::channel(100);
+
     for breach in breaches {
-        if !breach.domain.is_empty() {
-            println!("Running checks on {} ...", breach.domain);
-            let mut securitytxt_check = SecurityTxtChecks {
-                domain: breach.domain.clone(),
-                domain_error: false,
-                security_txt_path: "".to_string(),
-                security_txt_exists: false,
-                security_txt_location: false,
-            };
+        // Each task gets its own Sender
+        let tx = tx.clone();
 
-            // Check .well-known/security.txt
-            let securitytxt_resp = client
-                .get(format!(
-                    "https://{}/.well-known/security.txt",
-                    breach.domain
-                ))
-                .header("User-Agent", "HIBP_securitytxt")
-                .timeout(Duration::from_secs(5))
-                .send();
+        // Spin up a task to check each domain
+        let handle = tokio::task::spawn(async move {
+            if !breach.domain.is_empty() {
+                let client = Client::new();
 
-            // Check for errors
-            let securitytxt_resp = match securitytxt_resp.await {
-                Ok(securitytxt_resp) => securitytxt_resp,
-                Err(_e) => {
-                    //println!("Error: {}", _e);
-                    securitytxt_check.domain_error = true;
-                    securitytxt_checks.push(securitytxt_check);
-                    continue;
-                }
-            };
-
-            // Success?
-            if securitytxt_resp.status().is_success() {
-                /*println!(
-                    "Found security.txt at {}/.well-known/security.txt",
-                    breach.domain
-                );*/
-                securitytxt_check.security_txt_exists = true;
-                securitytxt_check.security_txt_location = true;
-                securitytxt_check.security_txt_path =
-                    format!("https://{}/.well-known/security.txt", breach.domain);
-            } else {
-                /*println!(
-                    "No security.txt found at {}/.well-known/security.txt",
-                    breach.domain
-                );*/
+                println!("Running checks on {} ...", breach.domain);
+                let mut securitytxt_check = SecurityTxtChecks {
+                    domain: breach.domain.clone(),
+                    domain_error: false,
+                    security_txt_path: "".to_string(),
+                    security_txt_exists: false,
+                    security_txt_location: false,
+                };
 
                 // Check .well-known/security.txt
-                let securitytxt_resp2 = client
-                    .get(format!("https://{}/security.txt", breach.domain))
+                let securitytxt_resp = client
+                    .get(format!(
+                        "https://{}/.well-known/security.txt",
+                        breach.domain
+                    ))
                     .header("User-Agent", "HIBP_securitytxt")
                     .timeout(Duration::from_secs(5))
                     .send();
 
                 // Check for errors
-                let securitytxt_resp2 = match securitytxt_resp2.await {
-                    Ok(securitytxt_resp2) => securitytxt_resp2,
+                let securitytxt_resp = match securitytxt_resp.await {
+                    Ok(securitytxt_resp) => securitytxt_resp,
                     Err(_e) => {
-                        //println!("Error: {}", _e);
                         securitytxt_check.domain_error = true;
-                        securitytxt_checks.push(securitytxt_check);
-                        continue;
+                        // Push compliance data to channel.
+                        if let Err(_e) = tx.send(securitytxt_check).await {
+                            println!("Failed to send result to main task");
+                        }
+                        return;
                     }
                 };
 
                 // Success?
-                if securitytxt_resp2.status().is_success() {
-                    //println!("Found security.txt at {}/security.txt", breach.domain);
+                if !securitytxt_check.domain_error && securitytxt_resp.status().is_success() {
                     securitytxt_check.security_txt_exists = true;
-                    securitytxt_check.security_txt_location = false;
+                    securitytxt_check.security_txt_location = true;
                     securitytxt_check.security_txt_path =
-                        format!("https://{}/security.txt", breach.domain);
+                        format!("https://{}/.well-known/security.txt", breach.domain);
                 } else {
-                    //println!("No security.txt found at {}/security.txt", breach.domain);
-                    securitytxt_check.security_txt_exists = false;
-                    securitytxt_check.security_txt_location = false;
+                    // Check /security.txt
+                    let securitytxt_resp2 = client
+                        .get(format!("https://{}/security.txt", breach.domain))
+                        .header("User-Agent", "HIBP_securitytxt")
+                        .timeout(Duration::from_secs(5))
+                        .send();
+
+                    // Check for errors
+                    let securitytxt_resp2 = match securitytxt_resp2.await {
+                        Ok(securitytxt_resp2) => securitytxt_resp2,
+                        Err(_e) => {
+                            securitytxt_check.domain_error = true;
+                            // Push compliance data to channel.
+                            if let Err(_e) = tx.send(securitytxt_check).await {
+                                println!("Failed to send result to main task");
+                            }
+                            return;
+                        }
+                    };
+
+                    // Success?
+                    if !securitytxt_check.domain_error && securitytxt_resp2.status().is_success() {
+                        securitytxt_check.security_txt_exists = true;
+                        securitytxt_check.security_txt_location = false;
+                        securitytxt_check.security_txt_path =
+                            format!("https://{}/security.txt", breach.domain);
+                    } else {
+                        securitytxt_check.security_txt_exists = false;
+                        securitytxt_check.security_txt_location = false;
+                    }
+                }
+
+                // Push compliance data to channel.
+                if let Err(_e) = tx.send(securitytxt_check).await {
+                    println!("Failed to send result to main task");
                 }
             }
+        });
 
-            // Push compliance data to vector.
-            securitytxt_checks.push(securitytxt_check);
-        }
+        handles.push(handle);
+    }
+
+    // No more senders are being created, so we can drop this one
+    drop(tx);
+
+    // Vec to hold SecurityTxtChecks results from each domain check task
+    let mut securitytxt_checks: Vec<SecurityTxtChecks> = Vec::new();
+
+    // Receive SecurityTxtChecks results from the channel and push them into the vector
+    while let Some(securitytxt_check) = rx.recv().await {
+        securitytxt_checks.push(securitytxt_check);
+    }
+
+    // Wait for all threads to finish before generating report
+    for handle in handles {
+        handle.await.unwrap();
     }
 
     // Generate report :3
